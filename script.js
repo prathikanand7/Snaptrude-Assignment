@@ -20,6 +20,7 @@ let extrudedMesh = null;
 let selectedVertex = null;
 let pointMarkers = [];
 let previewLine = null;
+// Define the extrusion depth in the Y direction (upwards from the ground)
 const extrusionHeight = 3;
 let isDragging = false;
 let isVertexEdit = false;
@@ -185,13 +186,10 @@ function extrudeShape() {
             console.log("Closed shape detected. Skipping duplicate last point.");
             break;
         }
-        shapePoints.push(new BABYLON.Vector3(points[i].x, extrusionHeight, points[i].z)); // Convert to 2D shape in XZ plane
+        shapePoints.push(new BABYLON.Vector3(points[i].x, 0.01, points[i].z)); // Convert to 2D shape in XZ plane
     }
 
     console.log("Polygon points for extrusion:", shapePoints.map(p => `(${p.x}, ${p.y}, ${p.z})`));
-
-    // Define the extrusion depth in the Y direction (upwards from the ground)
-    //extrusionHeight = 5; // Set the desired height of extrusion
 
     // Dispose of any previous shape preview
     if (shapeMesh) {
@@ -204,7 +202,7 @@ function extrudeShape() {
     }
     try {
         // Use ExtrudePolygon to create a solid 3D object extruded upwards
-        extrudedMesh = BABYLON.MeshBuilder.ExtrudePolygon("wall", {
+        extrudedMesh = BABYLON.MeshBuilder.ExtrudePolygon("extrudedPolygon", {
             shape: shapePoints,
             depth: extrusionHeight,
             sideOrientation: BABYLON.Mesh.DOUBLESIDE, // Make sure both sides are rendered

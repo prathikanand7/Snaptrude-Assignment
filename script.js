@@ -6,7 +6,7 @@ scene.clearColor = new BABYLON.Color3(0.8, 0.8, 0.8);
 // Camera and Lighting
 const camera = new BABYLON.ArcRotateCamera("camera", Math.PI / 4, Math.PI / 3, 20, BABYLON.Vector3.Zero(), scene);
 camera.attachControl(canvas, true);
-const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, -1), scene);
 
 // Ground Plane
 const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 20, height: 20 }, scene);
@@ -25,6 +25,55 @@ let isDragging = false;
 let isVertexEdit = false;
 let dragStartPosition = null;
 let currentScene = false;
+
+// Mini Axis Indicator Dimensions and Offset Position
+const axisLength = 1; // Length of each axis line
+const axisOffset = new BABYLON.Vector3(-9.5, 0.1, -9.5); // Bottom-left corner offset
+
+// Create Mini Axis Indicator
+const xAxis = BABYLON.MeshBuilder.CreateLines("xAxis", {
+    points: [BABYLON.Vector3.Zero(), new BABYLON.Vector3(axisLength, 0, 0)]
+}, scene);
+xAxis.color = new BABYLON.Color3(1, 0, 0); // Red for X-axis
+xAxis.position = axisOffset;
+
+const yAxis = BABYLON.MeshBuilder.CreateLines("yAxis", {
+    points: [BABYLON.Vector3.Zero(), new BABYLON.Vector3(0, axisLength, 0)]
+}, scene);
+yAxis.color = new BABYLON.Color3(0, 1, 0); // Green for Y-axis
+yAxis.position = axisOffset;
+
+const zAxis = BABYLON.MeshBuilder.CreateLines("zAxis", {
+    points: [BABYLON.Vector3.Zero(), new BABYLON.Vector3(0, 0, axisLength)]
+}, scene);
+zAxis.color = new BABYLON.Color3(0, 0, 1); // Blue for Z-axis
+zAxis.position = axisOffset;
+
+// Create labels for each axis
+const xLabel = createTextLabel("X", "red", new BABYLON.Vector3(axisLength + 0.3, 0, 0));
+const yLabel = createTextLabel("Y", "green", new BABYLON.Vector3(0, axisLength + 0.3, 0));
+const zLabel = createTextLabel("Z", "blue", new BABYLON.Vector3(0, 0, axisLength + 0.3));
+
+// Position each label correctly relative to its axis
+xLabel.position.addInPlace(axisOffset);
+yLabel.position.addInPlace(axisOffset);
+zLabel.position.addInPlace(axisOffset);
+
+// Function to create a text label
+function createTextLabel(text, color, position) {
+    const dynamicTexture = new BABYLON.DynamicTexture("DynamicTexture", { width: 64, height: 64 }, scene, true);
+    dynamicTexture.hasAlpha = true;
+    dynamicTexture.drawText(text, 5, 40, "bold 24px Arial", color, "transparent");
+
+    const plane = BABYLON.MeshBuilder.CreatePlane("TextPlane", { size: 0.5 }, scene);
+    plane.material = new BABYLON.StandardMaterial("TextPlaneMaterial", scene);
+    plane.material.backFaceCulling = false;
+    plane.material.diffuseTexture = dynamicTexture;
+    plane.position = position;
+    plane.setParent(xAxis); // Attach to axis for consistent positioning
+
+    return plane;
+}
 
 // UI Buttons
 document.getElementById("drawMode").onclick = () => setMode("draw");
@@ -136,7 +185,7 @@ function extrudeShape() {
             console.log("Closed shape detected. Skipping duplicate last point.");
             break;
         }
-        shapePoints.push(new BABYLON.Vector3(points[i].x, points[i].y, points[i].z)); // Convert to 2D shape in XZ plane
+        shapePoints.push(new BABYLON.Vector3(points[i].x, extrusionHeight, points[i].z)); // Convert to 2D shape in XZ plane
     }
 
     console.log("Polygon points for extrusion:", shapePoints.map(p => `(${p.x}, ${p.y}, ${p.z})`));
@@ -153,26 +202,25 @@ function extrudeShape() {
         extrudedMesh.dispose();
         extrudedMesh = null;
     }
-
     try {
         // Use ExtrudePolygon to create a solid 3D object extruded upwards
-        extrudedMesh = BABYLON.MeshBuilder.ExtrudePolygon("extrudedPolygon", {
+        extrudedMesh = BABYLON.MeshBuilder.ExtrudePolygon("wall", {
             shape: shapePoints,
             depth: extrusionHeight,
             sideOrientation: BABYLON.Mesh.DOUBLESIDE, // Make sure both sides are rendered
-            cap: BABYLON.Mesh.CAP_ALL // Cap both ends of the extrusion to make it solid
+            cap: BABYLON.Mesh.CAP_ALL, // Cap both ends of the extrusion to make it solid
         }, scene);
         extrudedMesh.position.y = extrusionHeight;
 
         // Apply a material to make the extruded shape visible and shaded
         const extrusionMaterial = new BABYLON.StandardMaterial("extrusionMaterial", scene);
-        extrusionMaterial.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5); // Light gray color for visibility
+        extrusionMaterial.diffuseColor = new BABYLON.Color3(0.8, 0.5, 0.5); // Light gray color for visibility
         extrudedMesh.material = extrusionMaterial;
 
         // Add edge lines to the extruded mesh
         extrudedMesh.enableEdgesRendering();
         extrudedMesh.edgesWidth = 1.0; // Set edge line width
-        extrudedMesh.edgesColor = new BABYLON.Color4(1, 1, 1, 1); // Green color for edge lines (RGBA format)
+        extrudedMesh.edgesColor = new BABYLON.Color4(1, 1, 1, 1); // White color for edge lines (RGBA format)
 
         // Add vertex spheres for editing without clearing the points array
         addVertexSpheres();
@@ -256,7 +304,7 @@ canvas.addEventListener("pointermove", (evt) => {
     if (mode === "extrudeShape" && evt.button === 2) {
         return;
     }
-    
+
     // Handle cursor appearance when hovering over the object in move mode
     if (mode === "move" && !isDragging && pickInfo.hit && pickInfo.pickedMesh === extrudedMesh) {
         canvas.style.cursor = "grab"; // Change cursor to grab when hovering over the object
@@ -279,7 +327,7 @@ canvas.addEventListener("pointermove", (evt) => {
         // Update points array to reflect the new position
         points = points.map(point => new BABYLON.Vector3(
             point.x + dragOffset.x,
-            point.y, // Keep Y the same as we are moving in XZ plane only
+            0.01, // Keep Y the same as we are moving in XZ plane only
             point.z + dragOffset.z
         ));
     }
@@ -287,8 +335,10 @@ canvas.addEventListener("pointermove", (evt) => {
     if (mode === "editVertex" && selectedVertex) {
         const pickInfo = scene.pick(scene.pointerX, scene.pointerY);
         if (pickInfo.hit) {
-            selectedVertex.position = pickInfo.pickedPoint;
+            if (pickInfo.hit) {
+            selectedVertex.position = pickInfo.pickedPoint.subtract(new BABYLON.Vector3(0, extrusionHeight, 0));
             updateMeshVertices();
+            }
         }
     }
 });
@@ -302,7 +352,6 @@ canvas.addEventListener("pointerup", () => {
         currentScene = false;
     }
     if (isVertexEdit) {
-        //extrudeShape();
         isVertexEdit = false;
         selectedVertex = null;
         camera.attachControl(canvas); // Re-enable camera control after drag
@@ -326,31 +375,17 @@ function updateMeshVertices() {
         if (child.name.startsWith("vertexSphere")) {
             const index = child.vertexIndex;
             positions[index] = child.position.x;
-            positions[index + 1] = child.position.y;
+            positions[index + 1] = child.position.y - extrusionHeight;
             positions[index + 2] = child.position.z;
         }
     });
-    extrudedMesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, positions);
 
-    positions = extrudedMesh.getVerticesData(BABYLON.VertexBuffer.PositionKind);
-    // Update points array with new vertex positions for remeshing
-    //points = vertexSpheres.map(sphere => new BABYLON.Vector3(sphere.positions.x, 0.01, sphere.positions.z));
-    //points = pointMarkers.map(sphere => new BABYLON.Vector3(sphere.position.x, 0.01, sphere.position.z));
-    // Update points array to reflect the new position
     points = points.map(point => new BABYLON.Vector3(
         child.position.x,
         child.position.y, // Keep Y the same as we are moving in XZ plane only
         child.position.z
-    ));
-    // Call extrudeShape to remesh with updated vertices
-    //extrudeShape();
-
-
-    if (extrudedMesh) {
-        extrudedMesh.dispose();
-    }
-
-     // Remesh the entire extruded shape with updated vertices
+        ));
+    extrudedMesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, positions);
 }
 
 // Run Render Loop

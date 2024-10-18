@@ -1,12 +1,12 @@
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
 const scene = new BABYLON.Scene(engine);
-scene.clearColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+scene.clearColor = new BABYLON.Color3(0.9, 0.9, 0.8);
 
 // Camera and Lighting
 const camera = new BABYLON.ArcRotateCamera("camera", Math.PI / 4, Math.PI / 3, 20, BABYLON.Vector3.Zero(), scene);
 camera.attachControl(canvas, true);
-const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, -1), scene);
+const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, -0.3), scene);
 
 // Ground Plane
 const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 20, height: 20 }, scene);
@@ -82,49 +82,59 @@ document.getElementById("extrudeShape").onclick = extrudeShape;
 document.getElementById("moveMode").onclick = () => setMode("move");
 document.getElementById("vertexEditMode").onclick = () => setMode("editVertex");
 
-function setMode(newMode) {
-    mode = newMode;
-    document.getElementById("modeIndicator").textContent = `Current Mode: ${mode.charAt(0).toUpperCase() + mode.slice(1)}`;
+function resetScene() {
+    // Dispose of the extruded mesh, shape preview, and preview line if they exist
+    showNotification("Scene has been reset");
+
+    if (extrudedMesh) {
+        extrudedMesh.dispose();
+        extrudedMesh = null;
+    }
+    if (shapeMesh) {
+        shapeMesh.dispose();
+        shapeMesh = null;
+    }
+    if (previewLine) {
+        previewLine.dispose();
+        previewLine = null;
+    }
+
+    // Dispose of all point markers
+    pointMarkers.forEach(marker => marker.dispose());
+    pointMarkers = [];
+
+    // Clear points array
+    pointsVector = [];
+    points = [];
+    selectedVertex = null;
+
+    // Call resetScene when entering Draw mode
+    document.getElementById("drawMode").onclick = () => {
+        setMode("draw"); // Set mode to draw
+    }
 }
 
-// Drawing Points and Shape
-canvas.addEventListener("pointerdown", (evt) => {
-    const pickInfo = scene.pick(scene.pointerX, scene.pointerY);
-    if (pickInfo.hit && pickInfo.pickedMesh === ground) {
-        if (mode === "move" && (evt.button === 0 || evt.button === 2)) {
-            return;
-        }
-        if (mode === "extrudeShape" && (evt.button === 0 || evt.button === 2)) {
-            return;
-        }
-        if (mode === "editVertex" && (evt.button === 0 || evt.button === 2)) {
-            return;
-        }
-        if (currentScene === false && points.length > 0) {
-            resetScene();
-        }
-        if (mode === "draw") {
-            currentScene = true;
-            if (evt.button === 0) { // Left-click
-                addPoint(pickInfo.pickedPoint);
-            } else if (evt.button === 2) { // Right-click
-                closeShape();
-            }
-        }
-    }
-    if (mode === "move" && pickInfo.hit && pickInfo.pickedMesh === extrudedMesh) {
-        isDragging = true; // Start dragging
-        dragStartPosition = pickInfo.pickedPoint; // Record starting point of drag
-        camera.detachControl(canvas);
-        canvas.style.cursor = "grabbing";
-    }
-    if (mode === "editVertex" && pickInfo.hit && pickInfo.pickedMesh.name.startsWith("vertexSphere")) {
-        isVertexEdit = true;
-        selectedVertex = pickInfo.pickedMesh;
-        camera.detachControl(canvas); // Disable camera control during drag
-        canvas.style.cursor = "grabbing";
-    }
-});
+function showNotification(message) {
+    const notification = document.getElementById("notification");
+    notification.textContent = message;
+    notification.classList.remove("hidden"); // Show the notification
+
+    // Hide the notification after 3 seconds
+    setTimeout(() => {
+        notification.classList.add("hidden");
+    }, 2000);
+}
+
+function setMode(newMode) {
+    mode = newMode;
+
+    // Add a space before each uppercase letter, capitalize the first letter
+    const formattedMode = mode
+        .replace(/([A-Z])/g, ' $1')  // Add space before uppercase letters
+        .replace(/^./, str => str.toUpperCase()); // Capitalize the first letter
+
+    document.getElementById("modeIndicator").textContent = `Current Mode: ${formattedMode}`;
+}
 
 // Function to Add Points and Preview Line
 function addPoint(point) {
@@ -218,10 +228,12 @@ function extrudeShape() {
         // Add edge lines to the extruded mesh
         extrudedMesh.enableEdgesRendering();
         extrudedMesh.edgesWidth = 1.0; // Set edge line width
-        extrudedMesh.edgesColor = new BABYLON.Color4(1, 1, 1, 1); // White color for edge lines (RGBA format)
+        extrudedMesh.edgesColor = new BABYLON.Color4(1, 1, 1); // White color for edge lines (RGB format)
 
         // Add vertex spheres for editing without clearing the points array
         addVertexSpheres();
+
+        showNotification("Shape extruded successfully!");
     } catch (error) {
         console.error("Extrusion failed:", error);
     }
@@ -251,55 +263,73 @@ function addVertexSpheres() {
     }
 }
 
-function resetScene() {
-    // Dispose of the extruded mesh, shape preview, and preview line if they exist
-    showNotification("Scene has been reset");
+function updateMeshVertices() {
+    canvas.style.cursor = "grabbing";
+    if (!extrudedMesh) return;
 
-    if (extrudedMesh) {
-        extrudedMesh.dispose();
-        extrudedMesh = null;
-    }
-    if (shapeMesh) {
-        shapeMesh.dispose();
-        shapeMesh = null;
-    }
-    if (previewLine) {
-        previewLine.dispose();
-        previewLine = null;
-    }
+    // Get the world position of the extruded mesh
+    const meshWorldPosition = extrudedMesh.position;
 
-    // Dispose of all point markers
-    pointMarkers.forEach(marker => marker.dispose());
-    pointMarkers = [];
+    const positions = extrudedMesh.getVerticesData(BABYLON.VertexBuffer.PositionKind);
 
-    // Clear points array
-    pointsVector = [];
-    points = [];
-    selectedVertex = null;
+    extrudedMesh.getChildren().forEach(child => {
+        if (child.name.startsWith("vertexSphere")) {
+            const index = child.vertexIndex;
+            positions[index] = child.position.x + meshWorldPosition.x;
+            positions[index + 1] = child.position.y - extrusionHeight;
+            positions[index + 2] = child.position.z + meshWorldPosition.z;;
+        }
+    });
 
-    // Call resetScene when entering Draw mode
-    document.getElementById("drawMode").onclick = () => {
-        setMode("draw"); // Set mode to draw
-    }
+    extrudedMesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, positions);
+
+
+    // Update the points array based on updated vertices
+    points = extrudedMesh.getChildren()
+        .filter(child => child.name.startsWith("vertexSphere"))
+        .map(child => new BABYLON.Vector3(
+            child.position.x + meshWorldPosition.x,
+            child.position.y, // Keep Y consistent
+            child.position.z + meshWorldPosition.z
+        ));
 }
 
-function showNotification(message) {
-    const notification = document.getElementById("notification");
-    notification.textContent = message;
-    notification.classList.remove("hidden"); // Show the notification
-
-    // Hide the notification after 3 seconds
-    setTimeout(() => {
-        notification.classList.add("hidden");
-    }, 2000);
-}
+// Event Listeners for Mouse Interactions
+canvas.addEventListener("pointerdown", (evt) => {
+    const pickInfo = scene.pick(scene.pointerX, scene.pointerY);
+    if (pickInfo.hit && pickInfo.pickedMesh === ground) {
+        if (mode === "move" || mode === "extrudeShape" || mode === "editVertex") {
+            return;
+        }
+        if (currentScene === false && points.length > 0) {
+            resetScene();
+        }
+        if (mode === "draw") {
+            currentScene = true;
+            if (evt.button === 0) { // Left-click
+                addPoint(pickInfo.pickedPoint);
+            } else if (evt.button === 2) { // Right-click
+                closeShape();
+            }
+        }
+    }
+    if (mode === "move" && pickInfo.hit && pickInfo.pickedMesh === extrudedMesh) {
+        isDragging = true; // Start dragging
+        dragStartPosition = pickInfo.pickedPoint; // Record starting point of drag
+        camera.detachControl(canvas);
+        canvas.style.cursor = "grabbing";
+    }
+    if (mode === "editVertex" && pickInfo.hit && pickInfo.pickedMesh.name.startsWith("vertexSphere")) {
+        isVertexEdit = true;
+        selectedVertex = pickInfo.pickedMesh;
+        camera.detachControl(canvas); // Disable camera control during drag
+        canvas.style.cursor = "grabbing";
+    }
+});
 
 canvas.addEventListener("pointermove", (evt) => {
     const pickInfo = scene.pick(scene.pointerX, scene.pointerY);
-    if (mode === "move" && evt.button === 2) {
-        return;
-    }
-    if (mode === "extrudeShape" && evt.button === 2) {
+    if ((mode === "move" || mode === "extrudeShape") && evt.button === 2) {
         return;
     }
 
@@ -312,6 +342,9 @@ canvas.addEventListener("pointermove", (evt) => {
 
     // Handle object movement in move mode
     if (mode === "move" && isDragging && pickInfo.hit && pickInfo.pickedMesh === ground) {
+        // Change the color to indicate the object is being grabbed
+        extrudedMesh.material.diffuseColor = new BABYLON.Color3(0.3, 0.5, 0.9); // Change to a blueish color while moving
+
         // Calculate drag offset
         const dragOffset = pickInfo.pickedPoint.subtract(dragStartPosition);
         canvas.style.cursor = "grabbing";
@@ -321,30 +354,34 @@ canvas.addEventListener("pointermove", (evt) => {
 
         // Update dragStartPosition for smooth continuous movement
         dragStartPosition = pickInfo.pickedPoint;
-        pointsVector.push(points);
-        // Update points array to reflect the new position
+
+        // Update the points array based on updated vertices
         points = points.map(point => new BABYLON.Vector3(
             point.x + dragOffset.x,
-            0.01, // Keep Y the same as we are moving in XZ plane only
+            point.y, // Keep Y consistent
             point.z + dragOffset.z
         ));
     }
 
     if (mode === "editVertex" && selectedVertex) {
-        const pickInfo = scene.pick(scene.pointerX, scene.pointerY);
+        //const pickInfo = scene.pick(scene.pointerX, scene.pointerY);
         if (pickInfo.hit) {
-            if (pickInfo.hit) {
-            selectedVertex.position = pickInfo.pickedPoint.subtract(new BABYLON.Vector3(0, extrusionHeight, 0));
+            // Adjust the selected vertex position relative to the mesh's position
+            const meshWorldPosition = extrudedMesh.position; // Get the world position of the mesh
+            selectedVertex.position = pickInfo.pickedPoint.subtract(meshWorldPosition); // Subtract the mesh's world position for correct local placement
             updateMeshVertices();
-            }
         }
     }
 });
 
-canvas.addEventListener("pointerup", () => {
+canvas.addEventListener("pointerup", (evt) => {
     if (isDragging) {
         isDragging = false;
         dragStartPosition = null;
+
+        // Reset the color back to its original state
+        extrudedMesh.material.diffuseColor = new BABYLON.Color3(0.8, 0.5, 0.5); // Set to original color
+
         camera.attachControl(canvas); // Re-enable camera control after drag
         canvas.style.cursor = "default"; // Reset cursor to default after drag
         currentScene = false;
@@ -365,26 +402,6 @@ canvas.addEventListener("pointerup", () => {
     selectedVertex = null;
 });
 
-function updateMeshVertices() {
-    canvas.style.cursor = "grabbing";
-    if (!extrudedMesh) return;
-    const positions = extrudedMesh.getVerticesData(BABYLON.VertexBuffer.PositionKind);
-    extrudedMesh.getChildren().forEach(child => {
-        if (child.name.startsWith("vertexSphere")) {
-            const index = child.vertexIndex;
-            positions[index] = child.position.x;
-            positions[index + 1] = child.position.y - extrusionHeight;
-            positions[index + 2] = child.position.z;
-        }
-    });
-
-    points = points.map(point => new BABYLON.Vector3(
-        child.position.x,
-        child.position.y, // Keep Y the same as we are moving in XZ plane only
-        child.position.z
-        ));
-    extrudedMesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, positions);
-}
 
 // Run Render Loop
 engine.runRenderLoop(() => scene.render());

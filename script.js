@@ -1,3 +1,4 @@
+// Canvas and Engine Setup
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
 const scene = new BABYLON.Scene(engine);
@@ -27,38 +28,33 @@ let isVertexEdit = false;
 let dragStartPosition = null;
 let currentScene = false;
 
-// Mini Axis Indicator Dimensions and Offset Position
-const axisLength = 1; // Length of each axis line
-const axisOffset = new BABYLON.Vector3(-9.5, 0.1, -9.5); // Bottom-left corner offset
+// Mini Axis Indicator Setup
+const axisLength = 1;
+const axisOffset = new BABYLON.Vector3(-9.5, 0.1, -9.5);
 
-// Create Mini Axis Indicator
-const xAxis = BABYLON.MeshBuilder.CreateLines("xAxis", {
-    points: [BABYLON.Vector3.Zero(), new BABYLON.Vector3(axisLength, 0, 0)]
-}, scene);
-xAxis.color = new BABYLON.Color3(1, 0, 0); // Red for X-axis
-xAxis.position = axisOffset;
+function createAxis(name, direction, color) {
+    const axis = BABYLON.MeshBuilder.CreateLines(name, {
+        points: [BABYLON.Vector3.Zero(), direction.scale(axisLength)]
+    }, scene);
+    axis.color = color;
+    axis.position = axisOffset;
+    return axis;
+}
 
-const yAxis = BABYLON.MeshBuilder.CreateLines("yAxis", {
-    points: [BABYLON.Vector3.Zero(), new BABYLON.Vector3(0, axisLength, 0)]
-}, scene);
-yAxis.color = new BABYLON.Color3(0, 1, 0); // Green for Y-axis
-yAxis.position = axisOffset;
+const xAxis = createAxis("xAxis", new BABYLON.Vector3(1, 0, 0), new BABYLON.Color3(1, 0, 0));
+const yAxis = createAxis("yAxis", new BABYLON.Vector3(0, 1, 0), new BABYLON.Color3(0, 1, 0));
+const zAxis = createAxis("zAxis", new BABYLON.Vector3(0, 0, 1), new BABYLON.Color3(0, 0, 1));
 
-const zAxis = BABYLON.MeshBuilder.CreateLines("zAxis", {
-    points: [BABYLON.Vector3.Zero(), new BABYLON.Vector3(0, 0, axisLength)]
-}, scene);
-zAxis.color = new BABYLON.Color3(0, 0, 1); // Blue for Z-axis
-zAxis.position = axisOffset;
+// Create and position axis labels
+function createAndPositionLabel(text, color, position) {
+    const label = createTextLabel(text, color, position);
+    label.position.addInPlace(axisOffset);
+    return label;
+}
 
-// Create labels for each axis
-const xLabel = createTextLabel("X", "red", new BABYLON.Vector3(axisLength + 0.3, 0, 0));
-const yLabel = createTextLabel("Y", "green", new BABYLON.Vector3(0, axisLength + 0.3, 0));
-const zLabel = createTextLabel("Z", "blue", new BABYLON.Vector3(0, 0, axisLength + 0.3));
-
-// Position each label correctly relative to its axis
-xLabel.position.addInPlace(axisOffset);
-yLabel.position.addInPlace(axisOffset);
-zLabel.position.addInPlace(axisOffset);
+const xLabel = createAndPositionLabel("X", "red", new BABYLON.Vector3(axisLength + 0.3, 0, 0));
+const yLabel = createAndPositionLabel("Y", "green", new BABYLON.Vector3(0, axisLength + 0.3, 0));
+const zLabel = createAndPositionLabel("Z", "blue", new BABYLON.Vector3(0, 0, axisLength + 0.3));
 
 // Function to create a text label
 function createTextLabel(text, color, position) {
@@ -76,15 +72,17 @@ function createTextLabel(text, color, position) {
     return plane;
 }
 
+
 // UI Buttons
 document.getElementById("drawMode").onclick = () => setMode("draw");
 document.getElementById("extrudeShape").onclick = extrudeShape;
 document.getElementById("moveMode").onclick = () => setMode("move");
 document.getElementById("vertexEditMode").onclick = () => setMode("editVertex");
+document.getElementById("resetScene").onclick = () => resetScene();
 
 function resetScene() {
     // Dispose of the extruded mesh, shape preview, and preview line if they exist
-    showNotification("Scene has been reset");
+    showNotification("Scene has been reset.");
 
     if (extrudedMesh) {
         extrudedMesh.dispose();
@@ -107,17 +105,18 @@ function resetScene() {
     pointsVector = [];
     points = [];
     selectedVertex = null;
-
+    setMode("draw");
     // Call resetScene when entering Draw mode
     document.getElementById("drawMode").onclick = () => {
         setMode("draw"); // Set mode to draw
     }
 }
 
-function showNotification(message) {
+function showNotification(message, isError = false) {
     const notification = document.getElementById("notification");
     notification.textContent = message;
     notification.classList.remove("hidden"); // Show the notification
+    isError ? notification.classList.add("error") : notification.classList.remove("error");
 
     // Hide the notification after 3 seconds
     setTimeout(() => {
@@ -144,11 +143,14 @@ function addPoint(point) {
 
     // Add point marker for visual feedback
     const marker = BABYLON.MeshBuilder.CreateSphere("marker", { diameter: 0.1 }, scene);
+    const extrusionMaterial = new BABYLON.StandardMaterial("extrusionMaterial", scene);
+    extrusionMaterial.diffuseColor = new BABYLON.Color3(0, 1, 1); // teal blue color for visibility
+    marker.material = extrusionMaterial;
     marker.position = newPoint;
     pointMarkers.push(marker);
 
     // Update the preview line as points are added
-    if (points.length > 1) {
+    if (points.length >= 1) {
         if (previewLine) previewLine.dispose();
         previewLine = BABYLON.MeshBuilder.CreateLines("previewLine", { points: points.concat([newPoint]) }, scene);
         previewLine.color = new BABYLON.Color3(0, 0, 1);
@@ -164,7 +166,7 @@ function closeShape() {
         // Dispose of any existing shapeMesh and create a new one with a closed loop
         if (shapeMesh) shapeMesh.dispose();
         shapeMesh = BABYLON.MeshBuilder.CreateLines("shape", { points: closedPoints }, scene);
-        shapeMesh.color = new BABYLON.Color3(0, 1, 0); // Set color for the final shape (e.g., green)
+        shapeMesh.color = new BABYLON.Color3(0, 1, 1); // Set color for the final shape (e.g., green)
 
         // Dispose of the preview line and point markers for a clean drawing interface
         if (previewLine) {
@@ -184,7 +186,8 @@ function extrudeShape() {
     setMode("extrudeShape"); // Reset mode to draw after extrusion
 
     // Ensure there are enough points for a valid shape
-    if (points.length < 3) {
+    if (points.length < 2) {
+        showNotification("Insufficient points for extrusion.", true);
         console.log("Insufficient points for extrusion.");
         return;
     }
@@ -232,7 +235,11 @@ function extrudeShape() {
 
         // Add vertex spheres for editing without clearing the points array
         addVertexSpheres();
-
+        if (previewLine) {
+            previewLine.dispose();
+            previewLine = null;
+        }
+        pointMarkers.forEach(marker => marker.dispose());
         showNotification("Shape extruded successfully!");
     } catch (error) {
         console.error("Extrusion failed:", error);
@@ -245,8 +252,8 @@ function addVertexSpheres() {
     if (!extrudedMesh) return;
 
     // Retrieve the positions of each vertex in the extruded mesh
-    const positions = extrudedMesh.getVerticesData(BABYLON.VertexBuffer.PositionKind);
     const vertexSpheres = [];
+    const positions = extrudedMesh.getVerticesData(BABYLON.VertexBuffer.PositionKind);
 
     for (let i = 0; i < positions.length; i += 3) {
         const vertexSphere = BABYLON.MeshBuilder.CreateSphere(`vertexSphere${i}`, { diameter: 0.1 }, scene);
@@ -256,6 +263,10 @@ function addVertexSpheres() {
             positions[i + 2]);
         vertexSphere.setParent(extrudedMesh); // Attach spheres to extruded mesh
         vertexSphere.isPickable = true; // Allow picking in edit mode
+
+        const extrusionMaterial = new BABYLON.StandardMaterial("extrusionMaterial", scene);
+        extrusionMaterial.diffuseColor = new BABYLON.Color3(0, 1, 1); // teal blue color for visibility
+        vertexSphere.material = extrusionMaterial;
 
         // Store the index of this vertex for reference in editing mode
         vertexSphere.vertexIndex = i;
@@ -279,10 +290,14 @@ function updateMeshVertices() {
             positions[index + 1] = child.position.y - extrusionHeight;
             positions[index + 2] = child.position.z + meshWorldPosition.z;;
         }
+
     });
+
 
     extrudedMesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, positions);
 
+    /* // Re-create the updated vertex spheres at new positions
+    addVertexSpheres(); */
 
     // Update the points array based on updated vertices
     points = extrudedMesh.getChildren()
@@ -292,7 +307,18 @@ function updateMeshVertices() {
             child.position.y, // Keep Y consistent
             child.position.z + meshWorldPosition.z
         ));
+
+
+
 }
+
+
+canvas.addEventListener("click", () => {
+    if ((mode === "move" || mode === "editVertex") && (points.length < 2 || !extrudedMesh)) {
+        showNotification("No extruded shape to move or edit.", true);
+        return;
+    }
+});
 
 // Event Listeners for Mouse Interactions
 canvas.addEventListener("pointerdown", (evt) => {

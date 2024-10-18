@@ -55,6 +55,9 @@ body, html {
     z-index: 1000;
 }
 
+.notification.error {
+    background-color: #f44336; /* Red background for errors */
+}
 .notification.hidden {
     opacity: 0;
     pointer-events: none;

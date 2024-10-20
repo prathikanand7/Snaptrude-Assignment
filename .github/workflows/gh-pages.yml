@@ -1,31 +1,30 @@
-name: Deploy to GitHub Pages
+name: Deploy to GitHub Pages from a Specific Branch
 
 on:
   push:
     branches:
-      - main  # This workflow will run whenever you push to the 'main' branch
+      - main  # Change this to your main branch or the branch you want to trigger from
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout the code
+      - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v2
-        with:
-          node-version: '16'  # Ensure the Node.js version matches your project requirements
-
       - name: Install dependencies
-        run: npm install  # Installs dependencies from package.json
+        run: npm install
 
       - name: Build project
-        run: npm run build  # Adjust this command based on your build tool (Parcel, Webpack, etc.)
+        run: npm run build
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist  # This is the directory where the built files are located
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Deploy to GitHub Pages"
+          git push https://$ACTIONS_DEPLOY_TOKEN@prathikanand7/snaptrude-assignment.git HEAD:gh-pages  # Ensure you push to `gh-pages`
+        env:
+          ACTIONS_DEPLOY_TOKEN: ${{ secrets.ACTIONS_DEPLOY_TOKEN }}

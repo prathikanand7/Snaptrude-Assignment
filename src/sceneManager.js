@@ -20,6 +20,8 @@ import {
     setSelectedShape,
 } from './stateManager.js';
 
+import { addVertexPickingBehavior } from './script.js';
+
 import { showNotification } from './notificationManager.js';
 
 // Set up the Babylon scene
@@ -30,11 +32,23 @@ export function setupScene(canvas, engine) {
     // Camera and Lighting
     const camera = new BABYLON.ArcRotateCamera("camera", Math.PI / 4, Math.PI / 3, 20, BABYLON.Vector3.Zero(), scene);
     camera.attachControl(canvas, true);
-    new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, -0.3), scene);
+
+    // Add hemispheric light for basic illumination
+    const hemisphericLight = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, -0.3), scene);
+    hemisphericLight.intensity = 0.7;
+    hemisphericLight.groundColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+
+    // Add point light for better illumination
+    const pointLight = new BABYLON.PointLight(
+        "pointLight",
+        new BABYLON.Vector3(0, 10, 0),
+        scene
+    );
+    pointLight.intensity = 0.3;
 
     // Ground Plane
     const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 20, height: 20 }, scene);
-
+    addVertexPickingBehavior(scene, camera, canvas);
     // Return the scene, camera, and ground objects
     return { scene, camera, ground };
 }
@@ -93,7 +107,7 @@ export function closeShape(scene) {
 // Extrude shape into 3D
 export function extrudeShape(scene) {
     if (getCurrentScene() === false) { showNotification("Shapes already exists! Clear them first.", true); return; }
-    setMode("extrudeShape");
+    setMode("extrudeShape", null, null);
     if (getCompletedShapes().length === 0) { showNotification("No shapes to extrude!", true); return; }
     const completedShapes = getCompletedShapes();  // Get all completed shapes
 
@@ -142,35 +156,44 @@ export function extrudeShape(scene) {
     setCurrentScene(false);
 }
 
-// Add vertex spheres for editing
-export function addVertexSpheres(scene, shape) {
+// AddVertexSpheres function to makes vertices more visible and easier to pick
+function addVertexSpheres(scene, shape) {
     if (!getCompletedShapes()) return;
-    const extrudedMesh = shape.extrudedMesh;
     const positions = shape.points;
     const extrusionHeight = getExtrusionHeight();
 
-    // Array to store vertex spheres
     shape.vertexSpheres = [];
 
-    console.log("Positions:", positions);
-    // Create a vertex sphere for each point in the shape
     positions.forEach((point, index) => {
+        // Create bottom vertex sphere
+        const bottomVertexSphere = BABYLON.MeshBuilder.CreateSphere(
+            `vertexSphereBottom${index}`,
+            { diameter: 0.2 }, // Increased size for better visibility
+            scene
+        );
+        bottomVertexSphere.position = new BABYLON.Vector3(point.x, 0, point.z);
 
-        // Bottom vertex sphere (Y = 0)
-        const bottomVertexSphere = BABYLON.MeshBuilder.CreateSphere(`vertexSphereBottom${index}`, { diameter: 0.1 }, scene);
-        bottomVertexSphere.position = new BABYLON.Vector3(point.x, 0, point.z);  // Bottom vertex position
-        bottomVertexSphere.material = new BABYLON.StandardMaterial("vertexMaterial", scene);
-        bottomVertexSphere.material.diffuseColor = new BABYLON.Color3(0, 1, 1);  // Teal color for vertices visibility
-        bottomVertexSphere.isPickable = true;  // Allow clicking for vertex editing
+        // Create top vertex sphere
+        const topVertexSphere = BABYLON.MeshBuilder.CreateSphere(
+            `vertexSphereTop${index}`,
+            { diameter: 0.2 }, // Increased size for better visibility
+            scene
+        );
+        topVertexSphere.position = new BABYLON.Vector3(point.x, extrusionHeight, point.z);
 
-        // Top vertex sphere (Y = extrusionHeight)
-        const topVertexSphere = BABYLON.MeshBuilder.CreateSphere(`vertexSphereTop${index}`, { diameter: 0.1 }, scene);
-        topVertexSphere.position = new BABYLON.Vector3(point.x, extrusionHeight, point.z);  // Top vertex position
-        topVertexSphere.material = new BABYLON.StandardMaterial("vertexMaterial", scene);
-        topVertexSphere.material.diffuseColor = new BABYLON.Color3(0, 1, 1);  // Teal color for vertices visibility
-        topVertexSphere.isPickable = true;  // Allow clicking for vertex editing
+        // Enhance vertex sphere materials for better visibility
+        const vertexMaterial = new BABYLON.StandardMaterial("vertexMaterial", scene);
+        vertexMaterial.diffuseColor = new BABYLON.Color3(0, 1, 1);
+        vertexMaterial.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+        vertexMaterial.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1);
 
-        // Store reference to both spheres in the shape object
+        bottomVertexSphere.material = vertexMaterial.clone();
+        topVertexSphere.material = vertexMaterial.clone();
+
+        // Enable vertex picking
+        bottomVertexSphere.isPickable = true;
+        topVertexSphere.isPickable = true;
+
         shape.vertexSpheres.push({ bottom: bottomVertexSphere, top: topVertexSphere });
     });
 }

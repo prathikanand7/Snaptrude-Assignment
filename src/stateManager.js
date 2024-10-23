@@ -1,9 +1,9 @@
 // State variables
 let mode = "draw";
+let previousMode = "draw";
 let points = [];
 let pointMarkers = [];
 let completedShapes = [];
-let mesh = null;
 let extrudedMesh = null;
 let previewLine = null;
 let extrusionHeight = 3;
@@ -30,11 +30,35 @@ export function getCompletedShapes() { return completedShapes; }
 export function getSelectedShape() { return selectedShape; }
 export function getSelectedVertex() { return selectedVertex; }
 
+// Add getter for previous mode
+export function getPreviousMode() { return previousMode; }
+
 
 // Setters
 export function setMode(newMode) {
+    previousMode = mode;  // Store the current mode before updating
     mode = newMode;
+
     updateModeIndicator();
+
+    // If we have access to camera and canvas (passed as optional parameters) to handle camera control
+    if (arguments.length > 1) {
+        const camera = arguments[1];
+        const canvas = arguments[2];
+
+        // Handle camera control when switching modes
+        if (previousMode === "editVertex" && newMode !== "editVertex") {
+            if (camera && canvas) {
+                camera.attachControl(canvas, true); // Re-enable camera controls
+            }
+            // Reset vertex editing state
+            isVertexEdit = false;
+            selectedVertex = null;
+            if (canvas) {
+                canvas.style.cursor = "default";
+            }
+        }
+    }
 }
 export function setPoints(newPoints) { points = newPoints; }
 export function setPointMarkers(newPointMarkers) { pointMarkers = newPointMarkers; }

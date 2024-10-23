@@ -20,7 +20,6 @@ import {
     getCurrentScene,
     setCurrentScene,
     getCompletedShapes,
-    getExtrusionHeight,
     setCompletedShapes,
     getSelectedShape,
     setSelectedShape,
@@ -39,11 +38,44 @@ const engine = new BABYLON.Engine(canvas, true);
 const { scene, camera, ground } = setupScene(canvas, engine); // Destructure to get scene, camera, and ground
 
 // UI Event Listeners
-document.getElementById("drawMode").onclick = () => setMode("draw");
-document.getElementById("extrudeShape").onclick = () => extrudeShape(scene);
-document.getElementById("moveMode").onclick = () => setMode("move");
-document.getElementById("vertexEditMode").onclick = () => setMode("editVertex");
-document.getElementById("resetScene").onclick = () => resetScene(scene);
+document.getElementById("drawMode").onclick = () => {
+    if (getIsVertexEdit()) {
+        // Clean up vertex edit state
+        setIsVertexEdit(false);
+        setSelectedVertex(null);
+    }
+    setMode("draw", camera, canvas);
+};
+
+document.getElementById("extrudeShape").onclick = () => {
+    if (getIsVertexEdit()) {
+        setIsVertexEdit(false);
+        setSelectedVertex(null);
+        camera.attachControl(canvas, true);
+    }
+    extrudeShape(scene);
+};
+
+document.getElementById("moveMode").onclick = () => {
+    if (getIsVertexEdit()) {
+        setIsVertexEdit(false);
+        setSelectedVertex(null);
+    }
+    setMode("move", camera, canvas);
+};
+
+document.getElementById("vertexEditMode").onclick = () => {
+    setMode("editVertex", camera, canvas);
+};
+
+document.getElementById("resetScene").onclick = () => {
+    if (getIsVertexEdit()) {
+        setIsVertexEdit(false);
+        setSelectedVertex(null);
+        camera.attachControl(canvas, true);
+    }
+    resetScene(scene);
+};
 
 // Initialize Axis and Labels
 initializeAxis(scene);
@@ -175,35 +207,80 @@ canvas.addEventListener("pointerup", (evt) => {
 
     // Check if we are editing a vertex
     if (isVertexEdit) {
-        if (currentMode === "move" && evt.button === 2) {
-            return;
+        if (selectedVertex) {
+            selectedVertex.material.diffuseColor = new BABYLON.Color3(0, 1, 1);  // Reset to teal
         }
-        if (currentMode === "extrudeShape" && evt.button === 2) {
-            return;
-        }
-        setIsVertexEdit(false);
-        selectedShape = getSelectedShape();
-        selectedVertex = getSelectedVertex();
-        if (selectedShape && selectedVertex) {
-            // Restore the color of the extruded shape to the original
-            selectedShape.extrudedMesh.material.diffuseColor = new BABYLON.Color3(0.8, 0.5, 0.5); // Light red color
-        }
-        // Find the selected vertex pair (top and bottom spheres)
-        const selected = selectedShape.vertexSpheres.find(v => v.bottom === selectedVertex || v.top === selectedVertex);
-        if (selected) {
-            selected.bottom.material.diffuseColor = new BABYLON.Color3(0, 1, 1); // Change to teal color after moving
-            selected.top.material.diffuseColor = new BABYLON.Color3(0, 1, 1); // Change to teal color after moving
-        }
-        camera.attachControl(canvas); // Re-enable camera control after drag
-        canvas.style.cursor = "default"; // Reset cursor to default after drag
-        setSelectedVertex(null);
-        setCurrentScene(false);
+        handlePointerUpEventForVertexEdit(selectedShape, selectedVertex, camera, canvas);
     }
 });
 
 // Run Render Loop
 engine.runRenderLoop(() => scene.render());
 window.addEventListener("resize", () => engine.resize());
+
+// Update the vertex picking behavior to include camera handling
+export function addVertexPickingBehavior(scene, camera, canvas) {
+    // Add pointer observable to handle vertex picking
+    scene.onPointerObservable.add((pointerInfo) => {
+        if (getMode() === "editVertex") {
+            switch (pointerInfo.type) {
+                case BABYLON.PointerEventTypes.POINTERDOWN:
+                    const pickResult = scene.pick(scene.pointerX, scene.pointerY); // Pick the object at the pointer's location
+                    if (pickResult.hit && (pickResult.pickedMesh.name.startsWith("vertexSphere"))) {
+                        const prevVertex = getSelectedVertex();
+                        if (prevVertex) {
+                            prevVertex.material.diffuseColor = new BABYLON.Color3(0, 1, 1); // Reset to teal
+                        }
+                        setSelectedVertex(pickResult.pickedMesh);
+                        setIsVertexEdit(true);
+                        if (camera && canvas) {
+                            camera.detachControl(canvas); // Disable camera movement during vertex editing
+                        }
+                        canvas.style.cursor = "grabbing";
+                        pickResult.pickedMesh.material.diffuseColor = new BABYLON.Color3(1, 0.8, 0); // Highlight selected vertex with yellow
+                    }
+                    break;
+                // Handle pointer up event for vertex editing
+                case BABYLON.PointerEventTypes.POINTERUP:
+                    if (getIsVertexEdit()) {
+                        handlePointerUpEventForVertexEdit(
+                            getSelectedShape(),
+                            getSelectedVertex(),
+                            camera,
+                            canvas
+                        );
+                    }
+                    break;
+            }
+        }
+    });
+}
+
+
+// Function to handle pointer up event for vertex editing
+export function handlePointerUpEventForVertexEdit(selectedShape, selectedVertex, camera, canvas) {
+    setIsVertexEdit(false);
+    // Reset the color of the selected vertex and shape
+    if (selectedVertex) {
+        selectedVertex.material.diffuseColor = new BABYLON.Color3(0, 1, 1); // Teal
+    }
+    if (selectedShape && selectedVertex) {
+        // Restore the color of the extruded shape
+        selectedShape.extrudedMesh.material.diffuseColor = new BABYLON.Color3(0.8, 0.5, 0.5); // Reddish color
+        selectedVertex.material.diffuseColor = new BABYLON.Color3(0, 1, 1); // Teal
+        console.log("reached here")
+    }
+
+    // Always ensure camera is reattached
+    if (camera && canvas) {
+        camera.attachControl(canvas, true);
+    }
+
+    // Reset cursor and clear selected vertex
+    canvas.style.cursor = "default";
+    setSelectedVertex(null);
+    setCurrentScene(false);
+}
 
 // Function to handle cursor appearance when hovering over the object in vertex editing mode
 function setCursorForVertexEditing(currentMode, isDragging, pickInfo) {
@@ -260,62 +337,162 @@ function findSelectedShapeForMovement(currentMode, pickInfo, completedShapes) {
 
 // Function to update the position of the selected vertex
 function updateSelectedVertexPosition(selectedVertex, pickInfo) {
-    if (getIsVertexEdit() && selectedVertex && pickInfo.hit && pickInfo.pickedMesh === ground) {
-        // Move the selected vertex to the new position
-        selectedVertex.position.x = pickInfo.pickedPoint.x;
-        selectedVertex.position.z = pickInfo.pickedPoint.z;
+    if (getIsVertexEdit() && selectedVertex) {
+        const camera = scene.activeCamera;
 
-        // Find the shape that this vertex belongs to and update its points
-        const completedShapes = getCompletedShapes();
+        // Create a ray from the camera through the mouse point, used to determine where in 3D space the vertex should move
+        const ray = scene.createPickingRay(scene.pointerX, scene.pointerY, BABYLON.Matrix.Identity(), camera);
 
-        for (let shape of completedShapes) {
-            // Find the corresponding vertex in the shape's vertexSpheres array
-            const selected = shape.vertexSpheres.find(v => v.bottom === selectedVertex || v.top === selectedVertex);
+        // Calculate new position based on camera ray intersection with movement plane
+        const movementPlane = createMovementPlane(selectedVertex, camera);
+        const newPosition = calculateNewVertexPosition(ray, movementPlane);
 
-            if (selected) {
-                // Calculate the index of the vertex sphere in the shape.points array
-                const index = shape.vertexSpheres.indexOf(selected);
+        if (newPosition) {
+            const completedShapes = getCompletedShapes();
 
-                // Update the positions of the selected vertex
-                updateSelectedVertexPositions(selectedVertex, selected, shape, index);
+            // Update the position of the selected vertex
+            for (let shape of completedShapes) {
+                const selected = shape.vertexSpheres.find(v =>
+                    v.bottom === selectedVertex || v.top === selectedVertex
+                );
 
-                // Dispose of the old extruded mesh and re-extrude the shape based on the new vertex positions
-                if (shape.extrudedMesh) shape.extrudedMesh.dispose();
+                if (selected) {
+                    const index = shape.vertexSpheres.indexOf(selected);
 
-                // Re-extrude the shape based on the updated points
-                reExtrudeAndRenderShape(shape, scene, completedShapes);
-                break;
+                    // Update the position of only the selected vertex
+                    if (selectedVertex === selected.bottom) {
+                        selected.bottom.position = newPosition.clone();
+                    } else {
+                        selected.top.position = newPosition.clone();
+                    }
+
+                    // Update the shape's points array with the new bottom vertex position
+                    shape.points[index] = selected.bottom.position.clone();
+
+                    // Highlight the active vertex
+                    selectedVertex.material.diffuseColor = new BABYLON.Color3(1, 0.8, 0); // Change to yellow color while moving
+
+                    // Reconstruct the shape with the new vertex positions
+                    reconstructExtrudedShape(shape, scene, completedShapes);
+                    break;
+                }
             }
         }
     }
 }
 
-// Function to update the positions of the selected vertex
-function updateSelectedVertexPositions(selectedVertex, selected, shape, index) {
-    // If we are editing the bottom vertex
-    if (selectedVertex === selected.bottom) {
-        selected.bottom.material.diffuseColor = new BABYLON.Color3(1, 0.8, 0); // Change to blue color while moving
+// Function to create a movement plane for vertex editing
+function createMovementPlane(vertex, camera) {
+    // Get the camera's view direction and the vertex position by subtracting the camera position from the target
+    const viewDirection = camera.getTarget().subtract(camera.position).normalize();
+    // Get the vertex position
+    const vertexPosition = vertex.position;
 
-        // Update the top sphere to match the bottom's X and Z
-        selected.top.position.x = selected.bottom.position.x;
-        selected.top.position.z = selected.bottom.position.z;
+    // Create a plane perpendicular to the camera's view direction
+    return {
+        // Use the view direction as the normal for the plane
+        normal: viewDirection,
+        // Calculate the distance from the origin to the plane
+        d: -BABYLON.Vector3.Dot(viewDirection, vertexPosition)
+    };
+}
+
+// Function to calculate the new vertex position based on the camera ray and movement plane, Makes sure ray isn't parallel to plane (would cause division by zero)
+function calculateNewVertexPosition(ray, plane) {
+    const denominator = BABYLON.Vector3.Dot(ray.direction, plane.normal);
+
+    // Calculate intersection between ray and movement plane
+    if (Math.abs(denominator) > 0.0001) {
+        // Ray intersection formula: P = (A + t * B) where P is the intersection point, A is the ray origin, B is the ray direction, and t is the distance along the ray. 
+        // d is the distance from the origin to the plane
+        const t = -(BABYLON.Vector3.Dot(ray.origin, plane.normal) + plane.d) / denominator;
+        if (t >= 0) {
+            // Moves along the ray by a distance of t
+            return ray.origin.add(ray.direction.scale(t));
+        }
+    }
+    return null;
+}
+
+function reconstructExtrudedShape(shape, scene) {
+    if (shape.extrudedMesh) {
+        shape.extrudedMesh.dispose();
     }
 
+    // Get all vertex positions for the shape
+    const bottomVertices = shape.vertexSpheres.map(v => v.bottom.position);
+    const topVertices = shape.vertexSpheres.map(v => v.top.position);
 
-    // If we are editing the top vertex
-    else if (selectedVertex === selected.top) {
-        // Update the bottom sphere to match the top's X and Z
-        selected.top.material.diffuseColor = new BABYLON.Color3(1, 0.8, 0); // Change to blue color while moving
-        selected.bottom.position.x = selected.top.position.x;
-        selected.bottom.position.z = selected.top.position.z;
+    // Create custom vertex data for the extruded shape
+    const vertexData = new BABYLON.VertexData();
+    const positions = [];
+    const indices = [];
+    const normals = [];
+
+    // Add all vertices
+    bottomVertices.forEach(v => positions.push(v.x, v.y, v.z));
+    topVertices.forEach(v => positions.push(v.x, v.y, v.z));
+
+    // Create indices for all faces
+    const vertexCount = bottomVertices.length;
+
+    // Create side faces
+    for (let i = 0; i < vertexCount; i++) {
+        const nextI = (i + 1) % vertexCount;
+        const bottomIndex = i;
+        const topIndex = i + vertexCount;
+        const nextBottomIndex = nextI;
+        const nextTopIndex = nextI + vertexCount;
+
+        // First triangle of the side
+        indices.push(bottomIndex, topIndex, nextBottomIndex);
+        // Second triangle of the side
+        indices.push(nextBottomIndex, topIndex, nextTopIndex);
     }
 
-    // Update the corresponding points in the shape's points array
-    shape.points[index] = new BABYLON.Vector3(
-        selected.bottom.position.x,
-        0, // Bottom vertex (Y = 0)
-        selected.bottom.position.z
-    );
+    // Create top and bottom faces
+    for (let i = 1; i < vertexCount - 1; i++) {
+        // Bottom face triangles
+        indices.push(0, i + 1, i);
+        // Top face triangles
+        indices.push(vertexCount, vertexCount + i, vertexCount + i + 1);
+    }
+
+    // Calculate surface normals for lighting
+    BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+
+    // Apply vertex data to mesh
+    vertexData.positions = positions;
+    vertexData.indices = indices;
+    vertexData.normals = normals;
+
+    // Create new 3D mesh
+    const extrudedMesh = new BABYLON.Mesh("extrudedShape", scene);
+    vertexData.applyToMesh(extrudedMesh);
+
+    // Apply material
+    // Create and configure material for consistent coloring
+    const material = new BABYLON.StandardMaterial("shapeMaterial", scene);
+    material.diffuseColor = new BABYLON.Color3(0.8, 0.5, 0.5); // Set the material color to red
+    material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduce specular highlights
+    material.ambientColor = new BABYLON.Color3(0.8, 0.5, 0.5); // Add ambient color
+    material.emissiveColor = new BABYLON.Color3(0.1, 0.05, 0.05); // Add slight emission
+    material.backFaceCulling = false;
+
+    // Adjust material properties for more consistent lighting
+    material.roughness = 1; // Reduce glossiness
+    material.metallic = 0; // Remove metallic effect
+    material.maxSimultaneousLights = 4; // Support multiple lights
+
+    extrudedMesh.material = material;
+
+    // Enable edge rendering for better visibility
+    extrudedMesh.enableEdgesRendering();
+    extrudedMesh.edgesWidth = 1.0;
+    extrudedMesh.edgesColor = new BABYLON.Color4(1, 1, 1);
+
+    // Update shape reference
+    shape.extrudedMesh = extrudedMesh;
 }
 
 // Function to handle object movement
@@ -405,30 +582,4 @@ function handlePointerUpEventForMove(selectedShape, camera, canvas) {
     setIsDragging(false);
     setSelectedShape(null); // Deselect the shape
     setCurrentScene(false);
-}
-
-// Function to re-extrude and render the shape based on the updated points
-function reExtrudeAndRenderShape(shape, scene, completedShapes) {
-    shape.extrudedMesh = BABYLON.MeshBuilder.ExtrudePolygon("extrudedPolygon", {
-        shape: shape.points,
-        depth: getExtrusionHeight(),
-        sideOrientation: BABYLON.Mesh.DOUBLESIDE,
-        cap: BABYLON.Mesh.CAP_ALL
-    }, scene);
-    shape.extrudedMesh.position.y = getExtrusionHeight(); // Set base Y position for the extruded mesh
-    const extrusionMaterial = new BABYLON.StandardMaterial("extrusionMaterial", scene);
-    extrusionMaterial.diffuseColor = new BABYLON.Color3(0.3, 0.5, 0.9); // Set the material color to red
-    shape.extrudedMesh.material = extrusionMaterial; // Set material for the new extruded shape
-
-
-    // Add edge lines for better visibility
-    shape.extrudedMesh.enableEdgesRendering();
-    shape.extrudedMesh.edgesWidth = 1.0;
-    shape.extrudedMesh.edgesColor = new BABYLON.Color4(1, 1, 1, 1); // White edges for better visibility
-
-    const indexTwo = completedShapes.indexOf(shape);
-    completedShapes[indexTwo].mesh.dispose();
-    updateShapePoints(indexTwo, shape.points);
-    setCompletedShapes(completedShapes);
-    setSelectedShape(shape); // Update the selected shape
 }

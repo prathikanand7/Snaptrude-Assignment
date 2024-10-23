@@ -497,52 +497,67 @@ function reconstructExtrudedShape(shape, scene) {
 
 // Function to handle object movement
 function handleObjectMovement(selectedShape, pickInfo) {
-    if (getIsDragging() && selectedShape && pickInfo.hit && pickInfo.pickedMesh === ground) {
-
-        // Change the color to indicate the object is being grabbed
-        selectedShape.extrudedMesh.material.diffuseColor = new BABYLON.Color3(0.3, 0.5, 0.9); // Change to a bluish color while moving
-        const dragStart = getDragStartPosition();
-        const dragOffset = pickInfo.pickedPoint.subtract(dragStart);
-        canvas.style.cursor = "grabbing";
-
-        // Update the extruded mesh's position with the offset, only in X and Z directions
-        selectedShape.extrudedMesh.position.x += dragOffset.x;
-        selectedShape.extrudedMesh.position.z += dragOffset.z;
-
-
-        // Update the points array based on updated vertices
-        let points = selectedShape.points;
-        points = points.map(point => new BABYLON.Vector3(
-            point.x + dragOffset.x,
-            point.y, // Keep Y consistent
-            point.z + dragOffset.z
-        ));
-        // Update drag start position for continuous movement
-        setDragStartPosition(pickInfo.pickedPoint);
-
-        // Move the vertex spheres as well
-        selectedShape.vertexSpheres.forEach((vertexPair) => {
-            // Move both top and bottom vertex spheres
-            vertexPair.bottom.position.x += dragOffset.x;
-            vertexPair.bottom.position.z += dragOffset.z;
-
-            vertexPair.top.position.x += dragOffset.x;
-            vertexPair.top.position.z += dragOffset.z;
-        });
-        setSelectedShape(selectedShape); // Update the selected shape
-        let completedShapes = getCompletedShapes();
-        for (let shape of completedShapes) {
-            if (shape === selectedShape) {
-                const index = completedShapes.indexOf(shape);
-                completedShapes[index].mesh.dispose();
-                updateShapePoints(index, points);
-                setCompletedShapes(completedShapes);
-                console.log("aaaaasdcdUpdated completedShapes at index:", index);
-                break;
-            }
-        }
-
+    // Early return if conditions aren't met
+    if (!getIsDragging() || !selectedShape || !pickInfo.hit || pickInfo.pickedMesh !== ground) {
+        return;
     }
+    // Cache frequently accessed values
+    const dragStart = getDragStartPosition();
+    if (!dragStart) return;
+
+    // Calculate offset once
+    const offsetX = pickInfo.pickedPoint.x - dragStart.x;
+    const offsetZ = pickInfo.pickedPoint.z - dragStart.z;
+
+    // Skip update if movement is negligible
+    if (Math.abs(offsetX) < 0.001 && Math.abs(offsetZ) < 0.001) {
+        return;
+    }
+
+
+    // Change the color to indicate the object is being grabbed
+    selectedShape.extrudedMesh.material.diffuseColor = new BABYLON.Color3(0.3, 0.5, 0.9); // Change to a bluish color while moving
+    //const dragStart = getDragStartPosition();
+    const dragOffset = pickInfo.pickedPoint.subtract(dragStart);
+    canvas.style.cursor = "grabbing";
+
+    // Update the extruded mesh's position with the offset, only in X and Z directions
+    selectedShape.extrudedMesh.position.x += offsetX;
+    selectedShape.extrudedMesh.position.z += offsetZ;
+
+    // Update the points array based on updated vertices
+    let points = selectedShape.points;
+    for (let i = 0; i < points.length; i++) {
+        points[i].x += offsetX;
+        points[i].z += offsetZ;
+    }
+    // Update drag start position for continuous movement
+    setDragStartPosition(pickInfo.pickedPoint);
+
+    // Move the vertex spheres as well
+    const vertexSpheres = selectedShape.vertexSpheres;
+    for (let i = 0; i < vertexSpheres.length; i++) {
+        const vertexPair = vertexSpheres[i];
+        // Move both top and bottom vertex spheres
+        vertexPair.bottom.position.x += offsetX;
+        vertexPair.bottom.position.z += offsetZ;
+
+        vertexPair.top.position.x += offsetX;
+        vertexPair.top.position.z += offsetZ;
+    };
+    setSelectedShape(selectedShape); // Update the selected shape
+    const completedShapes = getCompletedShapes();
+    const shapeIndex = completedShapes.indexOf(selectedShape);
+
+    // Update the points array in the completedShapes[] array
+    if (shapeIndex !== -1) {
+        if (completedShapes[shapeIndex].mesh) {
+            completedShapes[shapeIndex].mesh.dispose();
+        }
+        updateShapePoints(shapeIndex, points);
+        setCompletedShapes(completedShapes);
+    }
+
 }
 
 // Function to handle pointer up event for object movement

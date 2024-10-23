@@ -81,10 +81,32 @@ export function addCompletedShape(shapeMesh, shapePoints) { completedShapes.push
 
 // Function to update points for a shape (useful for vertex editing)
 export function updateShapePoints(index, newPoints) {
-    if (completedShapes[index]) {
+    if (!completedShapes[index]) return;
+
+    // Only update if points have actually changed
+    const currentPoints = completedShapes[index].points;
+    let hasChanged = false;
+
+    // Check if the lengths are different
+    if (currentPoints.length !== newPoints.length) {
+        hasChanged = true;
+    } else {
+        // Check if any point has changed in value
+        for (let i = 0; i < currentPoints.length; i++) {
+            if (!currentPoints[i].equals(newPoints[i])) {
+                hasChanged = true;
+                break;
+            }
+        }
+    }
+
+    // Update the points array if there are changes
+    if (hasChanged) {
         completedShapes[index].points = newPoints;
     }
 }
+
+// Function to update the mode indicator text
 function updateModeIndicator() {
     // Add a space before each uppercase letter, capitalize the first letter
     const formattedMode = mode
